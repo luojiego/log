@@ -1,4 +1,4 @@
-module github.com/luojiego/log
+module github.com/luojiego/slogx
 
 go 1.21
 

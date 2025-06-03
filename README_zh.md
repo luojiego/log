@@ -1,6 +1,6 @@
-# MyLog
+# Slogx
 
-MyLog 是一个基于 Go 1.21+ 内置的 `slog` 包封装的结构化日志库。它提供了简单易用的接口，同时具备日志轮转、环境感知和灵活配置等特性。
+Slogx 是一个基于 Go 1.21+ 内置的 `slog` 包封装的结构化日志库。它提供了简单易用的接口，同时具备日志轮转、环境感知和灵活配置等特性。
 
 [English](README.md)
 
@@ -19,7 +19,7 @@ MyLog 是一个基于 Go 1.21+ 内置的 `slog` 包封装的结构化日志库�
 ## 安装
 
 ```bash
-go get github.com/luojiego/log
+go get github.com/luojiego/slogx
 ```
 
 ## 快速开始
@@ -27,16 +27,16 @@ go get github.com/luojiego/log
 ```go
 package main
 
-import "github.com/luojiego/log"
+import "github.com/luojiego/slogx"
 
 func main() {
     // 直接使用包级别的函数
-    mylog.Info("应用启动")
-    mylog.Debug("调试信息")
-    mylog.Error("发生错误", "error", err)
+    slogx.Info("应用启动")
+    slogx.Debug("调试信息")
+    slogx.Error("发生错误", "error", err)
 
     // 使用 With 添加额外字段
-    logger := mylog.With("module", "user-service")
+    logger := slogx.With("module", "user-service")
     logger.Info("用户登录", "userId", 123)
 }
 ```
@@ -78,7 +78,7 @@ func main() {
 如果需要自定义配置，可以使用 `NewLogger` 函数：
 
 ```go
-logger := mylog.NewLogger(mylog.Config{
+logger := slogx.NewLogger(slogx.Config{
     Level:      "debug",
     Format:     "json",
     Filename:   "custom.log",
@@ -90,7 +90,7 @@ logger := mylog.NewLogger(mylog.Config{
 })
 
 // 设置为默认logger（可选）
-mylog.SetDefaultLogger(logger)
+slogx.SetDefaultLogger(logger)
 ```
 
 ## 动态调整日志级别

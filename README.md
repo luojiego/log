@@ -1,4 +1,4 @@
-# MyLog
+# Slogx
 
 A structured logging library for Go, built on top of `slog` with automatic log rotation, environment awareness, and flexible configuration.
 
@@ -19,7 +19,7 @@ A structured logging library for Go, built on top of `slog` with automatic log r
 ## Installation
 
 ```bash
-go get github.com/luojiego/log
+go get github.com/luojiego/slogx
 ```
 
 ## Quick Start
@@ -27,16 +27,16 @@ go get github.com/luojiego/log
 ```go
 package main
 
-import "github.com/luojiego/log"
+import "github.com/luojiego/slogx"
 
 func main() {
     // Use package-level functions
-    mylog.Info("Application started")
-    mylog.Debug("Debug information")
-    mylog.Error("Error occurred", "error", err)
+    slogx.Info("Application started")
+    slogx.Debug("Debug information")
+    slogx.Error("Error occurred", "error", err)
 
     // Use With to add extra fields
-    logger := mylog.With("module", "user-service")
+    logger := slogx.With("module", "user-service")
     logger.Info("User logged in", "userId", 123)
 }
 ```
@@ -78,7 +78,7 @@ Production Environment (GO_ENV=production/prod):
 Use `NewLogger` function for custom configuration:
 
 ```go
-logger := mylog.NewLogger(mylog.Config{
+logger := slogx.NewLogger(slogx.Config{
     Level:      "debug",
     Format:     "json",
     Filename:   "custom.log",
@@ -90,7 +90,7 @@ logger := mylog.NewLogger(mylog.Config{
 })
 
 // Set as default logger (optional)
-mylog.SetDefaultLogger(logger)
+slogx.SetDefaultLogger(logger)
 ```
 
 ## Dynamic Log Level Adjustment
