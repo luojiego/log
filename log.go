@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -129,6 +130,17 @@ type Logger struct {
 	level   *slog.LevelVar
 }
 
+// getCallerLocation returns the file name and line number of the caller
+func getCallerLocation() string {
+	// Skip enough frames to get past the logger's internal calls
+	const skipFrames = 3
+	_, file, line, ok := runtime.Caller(skipFrames)
+	if !ok {
+		return "unknown:0"
+	}
+	return filepath.Base(file) + ":" + strconv.Itoa(line)
+}
+
 // NewLogger 初始化并返回一个 Logger 实例
 func NewLogger(cfg Config) *Logger {
 	var writers []io.Writer
@@ -176,13 +188,21 @@ func NewLogger(cfg Config) *Logger {
 	// 配置 slog Handler
 	var handler slog.Handler
 	handlerOptions := &slog.HandlerOptions{
-		AddSource: true, // 添加代码源信息（文件和行号）
+		AddSource: false, // 禁用默认的源码位置
 		Level:     level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{
 					Key:   "time",
 					Value: slog.StringValue(a.Value.Time().Format("2006-01-02 15:04:05.000000")),
+				}
+			}
+
+			// 在消息前添加调用位置
+			if len(groups) == 0 && a.Key == "msg" {
+				return slog.Attr{
+					Key:   a.Key,
+					Value: slog.StringValue(getCallerLocation() + " " + a.Value.String()),
 				}
 			}
 			return a
