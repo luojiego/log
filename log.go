@@ -1,10 +1,13 @@
 package log
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -126,19 +129,130 @@ type Config struct {
 // Logger 是我们封装的日志器
 type Logger struct {
 	*slog.Logger
-	handler slog.Handler
-	level   *slog.LevelVar
+	handler    slog.Handler
+	level      *slog.LevelVar
+	callerSkip int // 添加 callerSkip 字段来控制调用栈跳过的层数
 }
 
 // getCallerLocation returns the file name and line number of the caller
-func getCallerLocation() string {
-	// Skip enough frames to get past the logger's internal calls
-	const skipFrames = 3
-	_, file, line, ok := runtime.Caller(skipFrames)
-	if !ok {
-		return "unknown:0"
+func getCallerLocation(skip int) string {
+	_, file, line, ok := runtime.Caller(skip)
+	if ok {
+		// funcName := runtime.FuncForPC(pc).Name()
+		fileName := path.Base(file)
+		// funcNames := strings.Split(funcName, ".")
+		// funcName = funcNames[len(funcNames)-1]
+		var buffer bytes.Buffer
+		buffer.WriteString("[")
+		buffer.WriteString(fileName)
+		// buffer.WriteString(":")
+		// buffer.WriteString(funcName)
+		buffer.WriteString(":")
+		buffer.WriteString(strconv.Itoa(line))
+		buffer.WriteString("]")
+		return buffer.String()
 	}
-	return filepath.Base(file) + ":" + strconv.Itoa(line)
+	return ""
+}
+
+// 以下是封装的日志方法，可以直接调用 slog.Logger 的方法
+func (l *Logger) Debug(msg string, args ...any) {
+	caller := getCallerLocation(3 + l.callerSkip)
+	args = append(args, "source", caller)
+	l.Logger.Debug(msg, args...)
+}
+
+func (l *Logger) Info(msg string, args ...any) {
+	caller := getCallerLocation(3 + l.callerSkip)
+	args = append(args, "source", caller)
+	l.Logger.Info(msg, args...)
+}
+
+func (l *Logger) Warn(msg string, args ...any) {
+	caller := getCallerLocation(3 + l.callerSkip)
+	args = append(args, "source", caller)
+	l.Logger.Warn(msg, args...)
+}
+
+func (l *Logger) Error(msg string, args ...any) {
+	caller := getCallerLocation(3 + l.callerSkip)
+	args = append(args, "source", caller)
+	l.Logger.Error(msg, args...)
+}
+
+// Fatal 级别，通常在记录后退出程序
+func (l *Logger) Fatal(msg string, args ...any) {
+	caller := getCallerLocation(3 + l.callerSkip)
+	// 将 caller 信息添加到 args 中
+	args = append(args, "source", caller)
+	l.Logger.Error(msg, args...) // slog 没有内置 fatal 级别，通常用 Error 记录后 os.Exit
+	os.Exit(1)
+}
+
+// With 为 Logger 添加额外的属性
+func (l *Logger) With(args ...any) *Logger {
+	return &Logger{
+		Logger:     l.Logger.With(args...),
+		handler:    l.handler,
+		level:      l.level,
+		callerSkip: l.callerSkip + 1, // 增加 callerSkip，因为多了一层调用
+	}
+}
+
+// WithCallerSkip returns a new Logger with custom caller skip level
+func (l *Logger) WithCallerSkip(skip int, args ...any) *Logger {
+	newLogger := &Logger{
+		Logger:  l.Logger.With(args...),
+		handler: l.handler,
+		level:   l.level,
+	}
+	return newLogger
+}
+
+// wrappedHandler 包装原有的 handler，添加文件行号
+type wrappedHandler struct {
+	handler slog.Handler
+}
+
+func (h *wrappedHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.handler.Enabled(ctx, level)
+}
+
+func (h *wrappedHandler) Handle(ctx context.Context, r slog.Record) error {
+	// 创建一个新的 Record，先不设置消息
+	newRecord := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+
+	// 先添加调用位置
+	newRecord.AddAttrs(slog.String("source", getCallerLocation(4)))
+
+	// 添加原有的其他属性
+	r.Attrs(func(a slog.Attr) bool {
+		newRecord.AddAttrs(a)
+		return true
+	})
+
+	return h.handler.Handle(ctx, newRecord)
+}
+
+func (h *wrappedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &wrappedHandler{handler: h.handler.WithAttrs(attrs)}
+}
+
+func (h *wrappedHandler) WithGroup(name string) slog.Handler {
+	return &wrappedHandler{handler: h.handler.WithGroup(name)}
+}
+
+// WithField creates a logger with a field
+func WithField(key string, value any) *slog.Logger {
+	// 创建一个新的 handler 来包装原有的 handler
+	origLogger := defaultLogger.With(key, value)
+
+	// 创建一个新的 handler，在每次记录日志时添加文件行号
+	newHandler := &wrappedHandler{
+		handler: origLogger.Handler(),
+	}
+
+	return slog.New(newHandler)
 }
 
 // NewLogger 初始化并返回一个 Logger 实例
@@ -185,24 +299,16 @@ func NewLogger(cfg Config) *Logger {
 		level.Set(slog.LevelInfo) // 默认级别
 	}
 
-	// 配置 slog Handler
 	var handler slog.Handler
+	// 配置 slog Handler
 	handlerOptions := &slog.HandlerOptions{
-		AddSource: false, // 禁用默认的源码位置
+		AddSource: false, // 我们自己处理调用位置
 		Level:     level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				return slog.Attr{
 					Key:   "time",
 					Value: slog.StringValue(a.Value.Time().Format("2006-01-02 15:04:05.000000")),
-				}
-			}
-
-			// 在消息前添加调用位置
-			if len(groups) == 0 && a.Key == "msg" {
-				return slog.Attr{
-					Key:   a.Key,
-					Value: slog.StringValue(getCallerLocation() + " " + a.Value.String()),
 				}
 			}
 			return a
@@ -216,9 +322,10 @@ func NewLogger(cfg Config) *Logger {
 	}
 
 	logger := &Logger{
-		Logger:  slog.New(handler),
-		handler: handler,
-		level:   level,
+		Logger:     slog.New(handler),
+		handler:    handler,
+		level:      level,
+		callerSkip: 0, // 初始化时设置为0
 	}
 
 	go func() {
@@ -240,36 +347,4 @@ func NewLogger(cfg Config) *Logger {
 	}()
 
 	return logger
-}
-
-// 以下是封装的日志方法，可以直接调用 slog.Logger 的方法
-func (l *Logger) Debug(msg string, args ...any) {
-	l.Logger.Debug(msg, args...)
-}
-
-func (l *Logger) Info(msg string, args ...any) {
-	l.Logger.Info(msg, args...)
-}
-
-func (l *Logger) Warn(msg string, args ...any) {
-	l.Logger.Warn(msg, args...)
-}
-
-func (l *Logger) Error(msg string, args ...any) {
-	l.Logger.Error(msg, args...)
-}
-
-// Fatal 级别，通常在记录后退出程序
-func (l *Logger) Fatal(msg string, args ...any) {
-	l.Logger.Error(msg, args...) // slog 没有内置 fatal 级别，通常用 Error 记录后 os.Exit
-	os.Exit(1)
-}
-
-// With 为 Logger 添加额外的属性
-func (l *Logger) With(args ...any) *Logger {
-	return &Logger{
-		Logger:  l.Logger.With(args...),
-		handler: l.handler,
-		level:   l.level,
-	}
 }
